@@ -66,22 +66,14 @@ describe Project do
       project.should_not be_valid
       project.errors[:base].first.should match(/Your own projects limit is 1/)
     end
-
-    it "should not allow 'gitolite-admin' as repo name" do
-      should allow_value("blah").for(:path)
-      should_not allow_value("gitolite-admin").for(:path)
-    end
   end
 
   describe "Respond to" do
     it { should respond_to(:url_to_repo) }
     it { should respond_to(:repo_exists?) }
     it { should respond_to(:satellite) }
-    it { should respond_to(:observe_push) }
     it { should respond_to(:update_merge_requests) }
     it { should respond_to(:execute_hooks) }
-    it { should respond_to(:post_receive_data) }
-    it { should respond_to(:trigger_post_receive) }
     it { should respond_to(:transfer) }
     it { should respond_to(:name_with_namespace) }
     it { should respond_to(:namespace_owner) }
@@ -91,7 +83,7 @@ describe Project do
 
   it "should return valid url to repo" do
     project = Project.new(path: "somewhere")
-    project.url_to_repo.should == Gitlab.config.gitolite.ssh_path_prefix + "somewhere.git"
+    project.url_to_repo.should == Gitlab.config.gitlab_shell.ssh_path_prefix + "somewhere.git"
   end
 
   it "returns the full web URL for this repo" do
@@ -126,10 +118,7 @@ describe Project do
     let(:project) { create(:project) }
 
     before do
-      @merge_request = create(:merge_request,
-                              project: project,
-                              merged: false,
-                              closed: false)
+      @merge_request = create(:merge_request, project: project)
       @key = create(:key, user_id: project.owner.id)
     end
 
@@ -138,8 +127,7 @@ describe Project do
       @merge_request.last_commit.id.should == "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a"
       project.update_merge_requests("8716fc78f3c65bbf7bcf7b574febd583bc5d2812", "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a", "refs/heads/stable", @key.user)
       @merge_request.reload
-      @merge_request.merged.should be_true
-      @merge_request.closed.should be_true
+      @merge_request.merged?.should be_true
     end
 
     it "should update merge request commits with new one if pushed to source branch" do

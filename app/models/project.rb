@@ -25,12 +25,13 @@ class Project < ActiveRecord::Base
 
   class TransferError < StandardError; end
 
-  attr_accessible :name, :path, :description, :default_branch, :issues_enabled,
-                  :wall_enabled, :merge_requests_enabled, :wiki_enabled, :public, as: [:default, :admin]
+  attr_accessible :name, :path, :description, :default_branch,
+    :issues_enabled, :wall_enabled, :merge_requests_enabled,
+    :wiki_enabled, :public, :import_url, as: [:default, :admin]
 
   attr_accessible :namespace_id, :creator_id, as: :admin
 
-  attr_accessor :error_code
+  attr_accessor :import_url
 
   # Relations
   belongs_to :creator,      foreign_key: "creator_id", class_name: "User"
@@ -42,7 +43,7 @@ class Project < ActiveRecord::Base
 
   has_many :events,             dependent: :destroy
   has_many :merge_requests,     dependent: :destroy
-  has_many :issues,             dependent: :destroy, order: "closed, created_at DESC"
+  has_many :issues,             dependent: :destroy, order: "state, created_at DESC"
   has_many :milestones,         dependent: :destroy
   has_many :users_projects,     dependent: :destroy
   has_many :notes,              dependent: :destroy
@@ -75,6 +76,10 @@ class Project < ActiveRecord::Base
   validates_uniqueness_of :name, scope: :namespace_id
   validates_uniqueness_of :path, scope: :namespace_id
 
+  validates :import_url,
+    format: { with: URI::regexp(%w(http https)), message: "should be a valid url" },
+    if: :import?
+
   validate :check_limit, :repo_name
 
   # Scopes
@@ -86,7 +91,7 @@ class Project < ActiveRecord::Base
   scope :sorted_by_activity, ->() { order("(SELECT max(events.created_at) FROM events WHERE events.project_id = projects.id) DESC") }
   scope :personal, ->(user) { where(namespace_id: user.namespace_id) }
   scope :joined, ->(user) { where("namespace_id != ?", user.namespace_id) }
-  scope :public, where(public: true)
+  scope :public_only, -> { where(public: true) }
 
   class << self
     def abandoned
@@ -98,7 +103,7 @@ class Project < ActiveRecord::Base
     end
 
     def with_push
-      includes(:events).where('events.action = ?', Event::Pushed)
+      includes(:events).where('events.action = ?', Event::PUSHED)
     end
 
     def active
@@ -140,12 +145,12 @@ class Project < ActiveRecord::Base
     nil
   end
 
-  def git_error?
-    error_code == :gitolite
+  def saved?
+    id && persisted?
   end
 
-  def saved?
-    id && valid?
+  def import?
+    import_url.present?
   end
 
   def check_limit
@@ -157,7 +162,7 @@ class Project < ActiveRecord::Base
   end
 
   def repo_name
-    denied_paths = %w(gitolite-admin admin dashboard groups help profile projects search)
+    denied_paths = %w(admin dashboard groups help profile projects search)
 
     if denied_paths.include?(path)
       errors.add(:path, "like #{path} is not allowed")
@@ -290,53 +295,6 @@ class Project < ActiveRecord::Base
     end
   end
 
-  # This method will be called after each post receive and only if the provided
-  # user is present in GitLab.
-  #
-  # All callbacks for post receive should be placed here.
-  def trigger_post_receive(oldrev, newrev, ref, user)
-    data = post_receive_data(oldrev, newrev, ref, user)
-
-    # Create satellite
-    self.satellite.create unless self.satellite.exists?
-
-    # Create push event
-    self.observe_push(data)
-
-    if push_to_branch? ref, oldrev
-      # Close merged MR
-      self.update_merge_requests(oldrev, newrev, ref, user)
-
-      # Execute web hooks
-      self.execute_hooks(data.dup)
-
-      # Execute project services
-      self.execute_services(data.dup)
-    end
-
-    # Discover the default branch, but only if it hasn't already been set to
-    # something else
-    if repository && default_branch.nil?
-      update_attributes(default_branch: self.repository.discover_default_branch)
-    end
-  end
-
-  def push_to_branch? ref, oldrev
-    ref_parts = ref.split('/')
-
-    # Return if this is not a push to a branch (e.g. new commits)
-    !(ref_parts[1] !~ /heads/ || oldrev == "00000000000000000000000000000000")
-  end
-
-  def observe_push(data)
-    Event.create(
-      project: self,
-      action: Event::Pushed,
-      data: data,
-      author_id: data[:user_id]
-    )
-  end
-
   def execute_hooks(data)
     hooks.each { |hook| hook.async_execute(data) }
   end
@@ -349,68 +307,12 @@ class Project < ActiveRecord::Base
     end
   end
 
-  # Produce a hash of post-receive data
-  #
-  # data = {
-  #   before: String,
-  #   after: String,
-  #   ref: String,
-  #   user_id: String,
-  #   user_name: String,
-  #   repository: {
-  #     name: String,
-  #     url: String,
-  #     description: String,
-  #     homepage: String,
-  #   },
-  #   commits: Array,
-  #   total_commits_count: Fixnum
-  # }
-  #
-  def post_receive_data(oldrev, newrev, ref, user)
-
-    push_commits = repository.commits_between(oldrev, newrev)
-
-    # Total commits count
-    push_commits_count = push_commits.size
-
-    # Get latest 20 commits ASC
-    push_commits_limited = push_commits.last(20)
-
-    # Hash to be passed as post_receive_data
-    data = {
-      before: oldrev,
-      after: newrev,
-      ref: ref,
-      user_id: user.id,
-      user_name: user.name,
-      repository: {
-        name: name,
-        url: url_to_repo,
-        description: description,
-        homepage: web_url,
-      },
-      commits: [],
-      total_commits_count: push_commits_count
-    }
-
-    # For perfomance purposes maximum 20 latest commits
-    # will be passed as post receive hook data.
-    #
-    push_commits_limited.each do |commit|
-      data[:commits] << {
-        id: commit.id,
-        message: commit.safe_message,
-        timestamp: commit.date.xmlschema,
-        url: "#{Gitlab.config.gitlab.url}/#{path_with_namespace}/commit/#{commit.id}",
-        author: {
-          name: commit.author_name,
-          email: commit.author_email
-        }
-      }
+  def discover_default_branch
+    # Discover the default branch, but only if it hasn't already been set to
+    # something else
+    if repository && default_branch.nil?
+      update_attributes(default_branch: self.repository.discover_default_branch)
     end
-
-    data
   end
 
   def update_merge_requests(oldrev, newrev, ref, user)
@@ -419,7 +321,7 @@ class Project < ActiveRecord::Base
     c_ids = self.repository.commits_between(oldrev, newrev).map(&:id)
 
     # Update code for merge requests
-    mrs = self.merge_requests.opened.find_all_by_branch(branch_name).all
+    mrs = self.merge_requests.opened.by_branch(branch_name).all
     mrs.each { |merge_request| merge_request.reload_code; merge_request.mark_as_unchecked }
 
     # Close merge requests
@@ -441,6 +343,10 @@ class Project < ActiveRecord::Base
     !repository || repository.empty?
   end
 
+  def ensure_satellite_exists
+    self.satellite.create unless self.satellite.exists?
+  end
+
   def satellite
     @satellite ||= Gitlab::Satellite::Satellite.new(self)
   end
@@ -450,7 +356,7 @@ class Project < ActiveRecord::Base
   end
 
   def url_to_repo
-    gitolite.url_to_repo(path_with_namespace)
+    gitlab_shell.url_to_repo(path_with_namespace)
   end
 
   def namespace_dir

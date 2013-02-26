@@ -11,7 +11,7 @@
 #
 # It's strongly recommended to check this file into your version control system.
 
-ActiveRecord::Schema.define(:version => 20130131070232) do
+ActiveRecord::Schema.define(:version => 20130220133245) do
 
   create_table "events", :force => true do |t|
     t.string   "target_type"
@@ -37,18 +37,17 @@ ActiveRecord::Schema.define(:version => 20130131070232) do
     t.integer  "assignee_id"
     t.integer  "author_id"
     t.integer  "project_id"
-    t.datetime "created_at",                      :null => false
-    t.datetime "updated_at",                      :null => false
-    t.boolean  "closed",       :default => false, :null => false
+    t.datetime "created_at",                  :null => false
+    t.datetime "updated_at",                  :null => false
     t.integer  "position",     :default => 0
     t.string   "branch_name"
     t.text     "description"
     t.integer  "milestone_id"
+    t.string   "state"
   end
 
   add_index "issues", ["assignee_id"], :name => "index_issues_on_assignee_id"
   add_index "issues", ["author_id"], :name => "index_issues_on_author_id"
-  add_index "issues", ["closed"], :name => "index_issues_on_closed"
   add_index "issues", ["created_at"], :name => "index_issues_on_created_at"
   add_index "issues", ["milestone_id"], :name => "index_issues_on_milestone_id"
   add_index "issues", ["project_id"], :name => "index_issues_on_project_id"
@@ -69,25 +68,23 @@ ActiveRecord::Schema.define(:version => 20130131070232) do
   add_index "keys", ["user_id"], :name => "index_keys_on_user_id"
 
   create_table "merge_requests", :force => true do |t|
-    t.string   "target_branch",                                          :null => false
-    t.string   "source_branch",                                          :null => false
-    t.integer  "project_id",                                             :null => false
+    t.string   "target_branch",                       :null => false
+    t.string   "source_branch",                       :null => false
+    t.integer  "project_id",                          :null => false
     t.integer  "author_id"
     t.integer  "assignee_id"
     t.string   "title"
-    t.boolean  "closed",                              :default => false, :null => false
-    t.datetime "created_at",                                             :null => false
-    t.datetime "updated_at",                                             :null => false
+    t.datetime "created_at",                          :null => false
+    t.datetime "updated_at",                          :null => false
     t.text     "st_commits",    :limit => 2147483647
     t.text     "st_diffs",      :limit => 2147483647
-    t.boolean  "merged",                              :default => false, :null => false
-    t.integer  "state",                               :default => 1,     :null => false
     t.integer  "milestone_id"
+    t.string   "state"
+    t.string   "merge_status"
   end
 
   add_index "merge_requests", ["assignee_id"], :name => "index_merge_requests_on_assignee_id"
   add_index "merge_requests", ["author_id"], :name => "index_merge_requests_on_author_id"
-  add_index "merge_requests", ["closed"], :name => "index_merge_requests_on_closed"
   add_index "merge_requests", ["created_at"], :name => "index_merge_requests_on_created_at"
   add_index "merge_requests", ["milestone_id"], :name => "index_merge_requests_on_milestone_id"
   add_index "merge_requests", ["project_id"], :name => "index_merge_requests_on_project_id"
@@ -96,24 +93,24 @@ ActiveRecord::Schema.define(:version => 20130131070232) do
   add_index "merge_requests", ["title"], :name => "index_merge_requests_on_title"
 
   create_table "milestones", :force => true do |t|
-    t.string   "title",                          :null => false
-    t.integer  "project_id",                     :null => false
+    t.string   "title",       :null => false
+    t.integer  "project_id",  :null => false
     t.text     "description"
     t.date     "due_date"
-    t.boolean  "closed",      :default => false, :null => false
-    t.datetime "created_at",                     :null => false
-    t.datetime "updated_at",                     :null => false
+    t.datetime "created_at",  :null => false
+    t.datetime "updated_at",  :null => false
+    t.string   "state"
   end
 
   add_index "milestones", ["due_date"], :name => "index_milestones_on_due_date"
   add_index "milestones", ["project_id"], :name => "index_milestones_on_project_id"
 
   create_table "namespaces", :force => true do |t|
-    t.string   "name",       :null => false
-    t.string   "path",       :null => false
-    t.integer  "owner_id",   :null => false
-    t.datetime "created_at", :null => false
-    t.datetime "updated_at", :null => false
+    t.string   "name",                        :null => false
+    t.string   "path",                        :null => false
+    t.integer  "owner_id",                    :null => false
+    t.datetime "created_at",                  :null => false
+    t.datetime "updated_at",                  :null => false
     t.string   "type"
   end
 
@@ -145,16 +142,16 @@ ActiveRecord::Schema.define(:version => 20130131070232) do
     t.string   "name"
     t.string   "path"
     t.text     "description"
-    t.datetime "created_at",                                :null => false
-    t.datetime "updated_at",                                :null => false
+    t.datetime "created_at",                                   :null => false
+    t.datetime "updated_at",                                   :null => false
     t.integer  "creator_id"
     t.string   "default_branch"
-    t.boolean  "issues_enabled",         :default => true,  :null => false
-    t.boolean  "wall_enabled",           :default => true,  :null => false
-    t.boolean  "merge_requests_enabled", :default => true,  :null => false
-    t.boolean  "wiki_enabled",           :default => true,  :null => false
+    t.boolean  "issues_enabled",         :default => true,     :null => false
+    t.boolean  "wall_enabled",           :default => true,     :null => false
+    t.boolean  "merge_requests_enabled", :default => true,     :null => false
+    t.boolean  "wiki_enabled",           :default => true,     :null => false
     t.integer  "namespace_id"
-    t.boolean  "public",                 :default => false, :null => false
+    t.boolean  "public",                 :default => false,    :null => false
   end
 
   add_index "projects", ["creator_id"], :name => "index_projects_on_owner_id"
@@ -233,8 +230,8 @@ ActiveRecord::Schema.define(:version => 20130131070232) do
     t.string   "name"
     t.string   "path"
     t.integer  "owner_id"
-    t.datetime "created_at", :null => false
-    t.datetime "updated_at", :null => false
+    t.datetime "created_at",                  :null => false
+    t.datetime "updated_at",                  :null => false
   end
 
   create_table "users", :force => true do |t|

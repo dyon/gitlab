@@ -70,6 +70,7 @@ class User < ActiveRecord::Base
   has_many :team_projects,                   through: :user_team_project_relationships
 
   validates :name, presence: true
+  validates :email, presence: true, format: { with: /\A([^@\s]+)@((?:[-a-z0-9]+\.)+[a-z]{2,})\Z/ }
   validates :bio, length: { within: 0..255 }
   validates :extern_uid, allow_blank: true, uniqueness: {scope: :provider}
   validates :projects_limit, presence: true, numericality: {greater_than_or_equal_to: 0}
@@ -87,10 +88,10 @@ class User < ActiveRecord::Base
   delegate :path, to: :namespace, allow_nil: true, prefix: true
 
   # Scopes
-  scope :admins, where(admin:  true)
-  scope :blocked, where(blocked:  true)
-  scope :active, where(blocked:  false)
-  scope :alphabetically, order('name ASC')
+  scope :admins, -> { where(admin:  true) }
+  scope :blocked, -> { where(blocked:  true) }
+  scope :active, -> { where(blocked:  false) }
+  scope :alphabetically, -> { order('name ASC') }
   scope :in_team, ->(team){ where(id: team.member_ids) }
   scope :not_in_team, ->(team){ where('users.id NOT IN (:ids)', ids: team.member_ids) }
   scope :potential_team_members, ->(team) { team.members.any? ? active.not_in_team(team) : active  }
@@ -138,7 +139,7 @@ class User < ActiveRecord::Base
     end
 
     def search query
-      where("name LIKE :query or email LIKE :query", query: "%#{query}%")
+      where("name LIKE :query OR email LIKE :query OR username LIKE :query", query: "%#{query}%")
     end
   end
 
@@ -234,8 +235,12 @@ class User < ActiveRecord::Base
     keys.count == 0
   end
 
+  def can_change_username?
+    Gitlab.config.gitlab.username_changing_enabled
+  end
+
   def can_create_project?
-    projects_limit > personal_projects.count
+    projects_limit > owned_projects.count
   end
 
   def can_create_group?
@@ -263,7 +268,7 @@ class User < ActiveRecord::Base
   end
 
   def cared_merge_requests
-    MergeRequest.where("author_id = :id or assignee_id = :id", id: self.id)
+    MergeRequest.cared(self)
   end
 
   # Remove user from all projects and
@@ -312,5 +317,9 @@ class User < ActiveRecord::Base
 
                             UserTeam.where(id: ids)
                           end
+  end
+
+  def owned_teams
+    UserTeam.where(owner_id: self.id)
   end
 end

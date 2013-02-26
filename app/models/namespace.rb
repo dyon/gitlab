@@ -17,11 +17,15 @@ class Namespace < ActiveRecord::Base
   has_many :projects, dependent: :destroy
   belongs_to :owner, class_name: "User"
 
-  validates :name, presence: true, uniqueness: true
+  validates :owner, presence: true
+  validates :name, presence: true, uniqueness: true,
+            length: { within: 0..255 },
+            format: { with: Gitlab::Regex.name_regex,
+                      message: "only letters, digits, spaces & '_' '-' '.' allowed." }
+
   validates :path, uniqueness: true, presence: true, length: { within: 1..255 },
             format: { with: Gitlab::Regex.path_regex,
                       message: "only letters, digits & '_' '-' '.' allowed. Letter should be first" }
-  validates :owner, presence: true
 
   delegate :name, to: :owner, allow_nil: true, prefix: true
 
@@ -29,9 +33,7 @@ class Namespace < ActiveRecord::Base
   after_update :move_dir
   after_destroy :rm_dir
 
-  scope :root, where('type IS NULL')
-
-  attr_accessor :require_update_gitolite
+  scope :root, -> { where('type IS NULL') }
 
   def self.search query
     where("name LIKE :query OR path LIKE :query", query: "%#{query}%")
@@ -60,13 +62,13 @@ class Namespace < ActiveRecord::Base
   end
 
   def namespace_full_path
-    @namespace_full_path ||= File.join(Gitlab.config.gitolite.repos_path, path)
+    @namespace_full_path ||= File.join(Gitlab.config.gitlab_shell.repos_path, path)
   end
 
   def move_dir
     if path_changed?
-      old_path = File.join(Gitlab.config.gitolite.repos_path, path_was)
-      new_path = File.join(Gitlab.config.gitolite.repos_path, path)
+      old_path = File.join(Gitlab.config.gitlab_shell.repos_path, path_was)
+      new_path = File.join(Gitlab.config.gitlab_shell.repos_path, path)
       if File.exists?(new_path)
         raise "Already exists"
       end
@@ -81,7 +83,6 @@ class Namespace < ActiveRecord::Base
 
         FileUtils.mv( old_path, new_path )
         send_update_instructions
-        @require_update_gitolite = true
       rescue Exception => e
         raise "Namespace move error #{old_path} #{new_path}"
       end
@@ -89,7 +90,7 @@ class Namespace < ActiveRecord::Base
   end
 
   def rm_dir
-    dir_path = File.join(Gitlab.config.gitolite.repos_path, path)
+    dir_path = File.join(Gitlab.config.gitlab_shell.repos_path, path)
     FileUtils.rm_r( dir_path, force: true )
   end
 
